@@ -78,6 +78,12 @@
         ansible.builtin.import_tasks:
             file: tasks/database/elasticsearch.yml
 
+      - name: Database | Mysql
+        become: true
+        become_user: root
+        tags: never,database,mysql
+        ansible.builtin.import_tasks:
+            file: tasks/database/mysql.yml
 - name: Mini0
   hosts: rb4-m2
   become: false
