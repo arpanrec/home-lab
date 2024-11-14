@@ -1,0 +1,210 @@
+---
+- name: OnlyOffice | Stop old container
+  community.docker.docker_container:
+      name: "{{ cs_onlyoffice_docker_container_name }}"
+      state: absent
+      force_kill: true
+
+- name: OnlyOffice | Create directories
+  ansible.builtin.file:
+      path: "{{ item }}"
+      state: directory
+      mode: "0755"
+  with_items:
+      - "{{ cs_onlyoffice_db_dir }}"
+      - "{{ cs_onlyoffice_data_dir }}"
+      - "{{ cs_onlyoffice_lib_dir }}"
+      - "{{ cs_onlyoffice_logs_dir }}"
+      - "{{ cs_onlyoffice_certs_dir }}"
+      - "{{ cs_onlyoffice_cert_pem_file | dirname }}"
+      - "{{ cs_onlyoffice_privkey_pem_file | dirname }}"
+      - "{{ cs_onlyoffice_chain_pem_file | dirname }}"
+      - "{{ cs_onlyoffice_fullchain_pem_file | dirname }}"
+      - "{{ cs_onlyoffice_entrypoint_file | dirname }}"
+      - "{{ cs_onlyoffice_db_certs_dir }}"
+      - "{{ cs_onlyoffice_db_cert_pem_file | dirname }}"
+      - "{{ cs_onlyoffice_db_privkey_pem_file | dirname }}"
+      - "{{ cs_onlyoffice_db_chain_pem_file | dirname }}"
+
+- name: OnlyOffice | Create SSL Private key
+  community.crypto.openssl_privatekey:
+      path: "{{ cs_onlyoffice_privkey_pem_file }}"
+      size: 4096
+      mode: "0600"
+
+- name: OnlyOffice | Create SSL CSR
+  community.crypto.openssl_csr:
+      path: "{{ cs_onlyoffice_certs_dir }}/csr.pem"
+      privatekey_path: "{{ cs_onlyoffice_privkey_pem_file }}"
+      common_name: "{{ cs_onlyoffice_domain }}"
+      subject_alt_name:
+          - "DNS:{{ cs_onlyoffice_domain }}"
+      key_usage:
+          - "digitalSignature"
+          - "keyEncipherment"
+          - "keyAgreement"
+      extended_key_usage:
+          - "serverAuth"
+      create_subject_key_identifier: true
+      mode: "0644"
+
+- name: OnlyOffice | Sign SSL CSR
+  community.crypto.x509_certificate:
+      path: "{{ cs_onlyoffice_cert_pem_file }}"
+      csr_path: "{{ cs_onlyoffice_certs_dir }}/csr.pem"
+      provider: ownca
+      ownca_privatekey_content: "{{ lookup('ansible.builtin.file', cs_root_ca_privkey_pem_file,
+          lstrip=false, rstrip=false) }}"
+      ownca_privatekey_passphrase: "{{ lookup('ansible.builtin.file', cs_root_ca_privkey_pass_file,
+          lstrip=false, rstrip=false) }}"
+      ownca_content: "{{ lookup('ansible.builtin.file', cs_root_ca_cert_pem_file,
+          lstrip=false, rstrip=false) }}"
+      mode: "0644"
+      return_content: true
+  register: cs_onlyoffice_ssl_cert
+
+- name: OnlyOffice | Write Full chain
+  ansible.builtin.copy:
+      content: |+
+          {{ cs_onlyoffice_ssl_cert.certificate | trim }}
+          {{ lookup('ansible.builtin.file', cs_root_ca_cert_pem_file, lstrip=false, rstrip=false) }}
+      dest: "{{ cs_onlyoffice_fullchain_pem_file }}"
+      mode: "0644"
+
+- name: OnlyOffice | Write ownca CA certificate
+  ansible.builtin.copy:
+      src: "{{ cs_root_ca_cert_pem_file }}"
+      dest: "{{ cs_onlyoffice_chain_pem_file }}"
+      mode: "0644"
+      remote_src: false
+
+- name: OnlyOffice | Write entrypoint script for updating CA certificates
+  ansible.builtin.copy:
+      src: "files/onlyoffice/entrypoint.sh"
+      dest: "{{ cs_onlyoffice_entrypoint_file }}"
+      mode: "0755"
+      remote_src: false
+
+- name: OnlyOffice | Databse Client Certificate | Create SSL Private key
+  community.crypto.openssl_privatekey:
+      path: "{{ cs_onlyoffice_db_privkey_pem_file }}"
+      size: 4096
+      mode: "0600"
+
+- name: OnlyOffice | Databse Client Certificate | Create SSL CSR
+  community.crypto.openssl_csr:
+      path: "{{ cs_onlyoffice_db_certs_dir }}/csr.pem"
+      privatekey_path: "{{ cs_onlyoffice_db_privkey_pem_file }}"
+      common_name: "{{ cs_onlyoffice_db_user }}"
+      key_usage:
+          - "digitalSignature"
+          - "keyEncipherment"
+          - "keyAgreement"
+      extended_key_usage:
+          - "clientAuth"
+      create_subject_key_identifier: true
+      mode: "0644"
+
+- name: OnlyOffice | Databse Client Certificate | Sign SSL CSR
+  community.crypto.x509_certificate:
+      path: "{{ cs_onlyoffice_db_cert_pem_file }}"
+      csr_path: "{{ cs_onlyoffice_db_certs_dir }}/csr.pem"
+      provider: ownca
+      ownca_privatekey_content: "{{ lookup('ansible.builtin.file', cs_root_ca_privkey_pem_file,
+          lstrip=false, rstrip=false) }}"
+      ownca_privatekey_passphrase: "{{ lookup('ansible.builtin.file', cs_root_ca_privkey_pass_file,
+          lstrip=false, rstrip=false) }}"
+      ownca_content: "{{ lookup('ansible.builtin.file', cs_root_ca_cert_pem_file,
+          lstrip=false, rstrip=false) }}"
+      mode: "0644"
+      return_content: true
+
+- name: OnlyOffice | Databse Client Certificate | Write CA certificate
+  ansible.builtin.copy:
+      src: "{{ cs_root_ca_cert_pem_file }}"
+      dest: "{{ cs_onlyoffice_db_chain_pem_file }}"
+      mode: "0644"
+      remote_src: false
+
+- name: OnlyOffice | Start Container
+  community.docker.docker_container:
+      name: "{{ cs_onlyoffice_docker_container_name }}"
+      image: "{{ cs_onlyoffice_docker_image }}:{{ cs_onlyoffice_docker_image_tag }}"
+      entrypoint:
+          - /entrypoint-update-ca-certificates.sh
+      volumes:
+          - "{{ cs_onlyoffice_data_dir }}:/var/www/onlyoffice/Data"
+          - "{{ cs_onlyoffice_logs_dir }}:/var/log/onlyoffice"
+          - "{{ cs_onlyoffice_lib_dir }}:/var/lib/onlyoffice"
+          - "{{ cs_onlyoffice_db_dir }}:/var/lib/postgresql"
+          - "{{ cs_onlyoffice_fullchain_pem_file }}:/cert.pem:ro"
+          - "{{ cs_onlyoffice_privkey_pem_file }}:/priv.key:ro"
+          - "{{ cs_onlyoffice_chain_pem_file }}:/usr/local/share/ca-certificates/ownca.crt:ro"
+          - "{{ cs_onlyoffice_entrypoint_file }}:/entrypoint-update-ca-certificates.sh"
+          - "{{ cs_onlyoffice_db_cert_pem_file }}:/db-cert.pem:ro"
+          - "{{ cs_onlyoffice_db_privkey_pem_file }}:/db-privkey.pem:ro"
+          - "{{ cs_onlyoffice_db_chain_pem_file }}:/db-chain.pem:ro"
+      state: started
+      ports:
+          - "{{ cs_onlyoffice_port }}:443"
+      restart_policy: unless-stopped
+      env:
+          JWT_SECRET: "{{ cs_onlyoffice_jwt_secret }}"
+          SSL_KEY_PATH: "/priv.key"
+          SSL_CERTIFICATE_PATH: "/cert.pem"
+          WOPI_ENABLED: "true"
+          GENERATE_FONTS: "true"
+          # TODO: USE_UNAUTHORIZED_STORAGE: Change to false, server doesn't validate the certificate from client.
+          # This is a security risk. But right now, it's the only way to get it working.
+          # https://github.com/ONLYOFFICE/Docker-DocumentServer/issues/96#issuecomment-770344608
+          # This also doesn't work
+          USE_UNAUTHORIZED_STORAGE: "true"
+          DB_TYPE: "{{ cs_onlyoffice_db_type }}"
+          DB_HOST: "{{ cs_onlyoffice_db_host }}"
+          DB_PORT: "{{ cs_onlyoffice_db_port }}"
+          DB_USER: "{{ cs_onlyoffice_db_user }}"
+          DB_PWD: "{{ cs_onlyoffice_db_password }}"
+          DB_NAME: "{{ cs_onlyoffice_db_database }}"
+          ALLOW_CONFIG_MUTATIONS: "true"
+
+- name: OnlyOffice | Enable UFW port
+  community.general.ufw:
+      rule: allow
+      port: "{{ item }}"
+      state: enabled
+  with_items:
+      - "{{ cs_onlyoffice_port }}"
+
+- name: OnlyOffice | Wait for service to start
+  ansible.builtin.uri:
+      url: "https://{{ cs_onlyoffice_domain }}:{{ cs_onlyoffice_port }}/healthcheck"
+      method: GET
+      status_code: 200
+      return_content: true
+      ca_path: "/etc/ssl/{{ cs_onlyoffice_domain }}/fullchain.pem"
+      validate_certs: true
+  register: is_onlyoffice_up
+  until: is_onlyoffice_up.status == 200
+  retries: 30
+  delay: 3
+
+- name: OnlyOffice | Enable example document server
+  community.docker.docker_container_exec:
+      container: "{{ cs_onlyoffice_docker_container_name }}"
+      command: sudo supervisorctl start ds:example
+  register: onlyoffice_example
+  changed_when: true
+
+- name: OnlyOffice | Debug example document server
+  ansible.builtin.debug:
+      var: onlyoffice_example
+
+- name: OnlyOffice | Add to auto start
+  community.docker.docker_container_exec:
+      container: "{{ cs_onlyoffice_docker_container_name }}"
+      command: sudo sed 's,autostart=false,autostart=true,' -i /etc/supervisor/conf.d/ds-example.conf
+  register: onlyoffice_autostart
+
+- name: OnlyOffice | Debug auto start
+  ansible.builtin.debug:
+      var: onlyoffice_autostart
