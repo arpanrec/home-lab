@@ -185,6 +185,19 @@
         ansible.builtin.import_tasks:
             file: tasks/nfs-client.yml
 
+- name: OnlyOffice
+  hosts: rb4-m2
+  become: false
+  gather_facts: false
+  no_log: "{{ cs_no_log }}"
+  tasks:
+      - name: OnlyOffice
+        tags: never,onlyoffice
+        become: true
+        become_user: root
+        ansible.builtin.import_tasks:
+            file: tasks/onlyoffice.yml
+
 - name: Nextcloud
   hosts: nextcloud
   become: false
