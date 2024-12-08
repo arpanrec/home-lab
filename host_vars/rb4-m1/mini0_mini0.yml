@@ -1,5 +1,5 @@
 ---
-cs_mini0_external_disk_id: "p1-5tb-rb4-m1"
+cs_mini0_external_disk_id: "p2-2tb-rb4-m2"
 cs_mini0_mini0_data_dir: "/mnt/{{ cs_mini0_external_disk_id }}/mini0_data"
 
 cs_mini0_mini0_hostnames: ["localhost", "{{ cs_public_ingress_dns_entry }}"]

@@ -37,6 +37,23 @@
   ansible.builtin.debug:
       msg: "Mounting disk {{ cs_crypt_mount_vault_id }} on {{ cs_crypt_mount_disk_mount_path }}"
 
+- name: Crypt Device | Mount | Gather facts for crypt device uuid
+  ansible.builtin.setup:
+      gather_subset: all
+
+- name: Crypt Device | Mount | Search for crypt device uuid
+  ansible.builtin.set_fact:
+      cs_crypt_mount_tmp_crypt_device_details: "{{ item.value }}"
+  with_items: "{{ ansible_devices | dict2items }}"
+  when: >
+      item.value.links.uuids | length > 0 and
+      cs_crypt_mount_crypt_device_uuid == item.value.links.uuids[0]
+
+- name: Crypt Device | Mount | Fail if crypt device uuid doesn't match
+  ansible.builtin.fail:
+      msg: "Device UUID doesn't match"
+  when: cs_crypt_mount_tmp_crypt_device_details is not defined
+
 - name: Crypt Device | Mount | Install cryptsetup
   become: true
   become_user: root
@@ -108,24 +125,24 @@
       state: restarted
       daemon_reload: true
 
-- name: Crypt Device | Mount | Gather facts for crypt device uuid
+- name: Crypt Device | Mount | Gather facts for device uuid
   ansible.builtin.setup:
       gather_subset: all
 
-- name: Crypt Device | Mount | Search for crypt device uuid
+- name: Crypt Device | Mount | Search for device uuid
   ansible.builtin.set_fact:
       cs_crypt_mount_tmp_device_details: "{{ item.value }}"
   with_items: "{{ ansible_devices | dict2items }}"
   when: >
       item.value.links.uuids | length > 0 and
-      cs_crypt_mount_crypt_device_uuid == item.value.links.uuids[0]
+      cs_crypt_mount_device_uuid == item.value.links.uuids[0]
 
-- name: Crypt Device | Mount | Fail if crypt device uuid doesn't match
+- name: Crypt Device | Mount | Fail if device uuid doesn't match
   ansible.builtin.fail:
-      msg: "Device UUID doesn't match"
+      msg: "Crypt Device UUID doesn't match"
   when: >
-      cs_crypt_mount_tmp_device_details is not defined or cs_crypt_mount_tmp_device_details.holders | length == 0 or
-      cs_crypt_mount_tmp_device_details.holders[0] != cs_crypt_mount_crypt_open_name
+      cs_crypt_mount_tmp_device_details is not defined or
+      cs_crypt_mount_tmp_device_details | length < 1
 
 - name: Crypt Device | Mount | Fstab Mount
   ansible.posix.mount:
@@ -140,25 +157,6 @@
       dump: 0
       passno: 2
       backup: true
-
-- name: Crypt Device | Mount | Gather facts for device uuid
-  ansible.builtin.setup:
-      gather_subset: all
-
-- name: Crypt Device | Mount | Search for device uuid
-  ansible.builtin.set_fact:
-      cs_crypt_mount_tmp_crypt_device_details: "{{ item.value }}"
-  with_items: "{{ ansible_devices | dict2items }}"
-  when: >
-      item.value.links.uuids | length > 0 and
-      cs_crypt_mount_device_uuid == item.value.links.uuids[0]
-
-- name: Crypt Device | Mount | Fail if device uuid doesn't match
-  ansible.builtin.fail:
-      msg: "Crypt Device UUID doesn't match"
-  when: >
-      cs_crypt_mount_tmp_crypt_device_details is not defined or
-      cs_crypt_mount_tmp_crypt_device_details | length < 1
 
 - name: Crypt Device | Mount | Get df
   ansible.builtin.command:
@@ -192,5 +190,5 @@
       cs_crypt_mount_tmp_crypt_key_file: null
       cs_crypt_mount_disk_mount_path: null
       cs_crypt_mount_crypt_open_name: null
-      cs_crypt_mount_tmp_device_details: null
       cs_crypt_mount_tmp_crypt_device_details: null
+      cs_crypt_mount_tmp_device_details: null

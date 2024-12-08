@@ -1,0 +1,3 @@
+---
+cs_jellyfin_ansible_arch_map:
+    aarch64: arm64

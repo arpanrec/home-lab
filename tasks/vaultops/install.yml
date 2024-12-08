@@ -15,7 +15,7 @@
         ansible.builtin.service_facts:
 
       - name: Vaultops | Vault | Install | System | Try to remove old | Disable vault service for all vault@vm* services
-        ansible.builtin.systemd:
+        ansible.builtin.systemd_service:
             name: "{{ vault_node_systemd_service.value.name }}"
             enabled: false
             state: stopped

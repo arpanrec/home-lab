@@ -8,7 +8,7 @@
   ansible.builtin.service_facts:
 
 - name: Vaultops | Vault Virtual Node Server | DR | Disable vault service
-  ansible.builtin.systemd:
+  ansible.builtin.systemd_service:
       name: "{{ pv_vault_systemd_service }}@{{ inventory_hostname }}.service"
       enabled: false
       state: stopped
@@ -24,7 +24,7 @@
       dest: "{{ pv_vault_base_path }}/{{ inventory_hostname }}/data/raft/peers.json"
 
 - name: Vaultops | Vault Virtual Node Server | DR | Enable vault service
-  ansible.builtin.systemd:
+  ansible.builtin.systemd_service:
       name: "{{ pv_vault_systemd_service }}@{{ inventory_hostname }}.service"
       enabled: true
       state: started

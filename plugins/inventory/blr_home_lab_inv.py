@@ -235,7 +235,6 @@ class InventoryModule(BaseInventoryPlugin):
                 self.inventory.set_variable(
                     vault_server_name, "ansible_ssh_private_key_file", ssh_private_key_temp_file
                 )
-            print(f"vault_server_details.is_vault_server {vault_server_details.is_vault_server}")
             if not vault_server_details.is_vault_server:
                 continue
 

@@ -22,7 +22,7 @@
       cs_postgres_apps_dict: "{{ __postgresql_config.secret.apps_dict }}"
 
 - name: Database | Postgres | Enable Docker
-  ansible.builtin.systemd:
+  ansible.builtin.systemd_service:
       name: docker
       enabled: true
       state: started
