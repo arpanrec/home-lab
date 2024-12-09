@@ -1,0 +1,134 @@
+---
+- name: Jellyfin | Stop Jellyfin if running
+  ansible.builtin.systemd_service:
+      name: jellyfin
+      state: stopped
+      enabled: false
+      daemon_reload: true
+  register: __jellyfin_service_is_running
+  failed_when: __jellyfin_service_is_running.failed and
+      (
+      __jellyfin_service_is_running.msg.find("Could not find the requested service") == -1
+      )
+
+- name: Jellyfin | Include common crypt mount
+  when: false # TODO: Uncomment when ready
+  ansible.builtin.include_tasks:
+      file: tasks/common/crypt_mount.yml
+  vars:
+      cs_crypt_mount_vault_id: "{{ cs_jellyfin_external_disk_id }}"
+
+- name: Jellyfin | Install packages
+  ansible.builtin.apt:
+      name:
+          - apt-transport-https
+          - lsb-release
+          - ca-certificates
+          - python3-lxml
+      state: present
+
+- name: Jellyfin | Add Jellyfin gpg key
+  ansible.builtin.apt_key:
+      url: https://repo.jellyfin.org/debian/jellyfin_team.gpg.key
+      state: present
+      validate_certs: true
+      keyring: /usr/share/keyrings/jellyfin-archive-keyring.gpg
+
+- name: Jellyfin | Gather facts
+  ansible.builtin.setup:
+      gather_subset: all
+
+- name: Jellyfin | Add Jellyfin repository
+  ansible.builtin.apt_repository:
+      repo: "deb [signed-by=/usr/share/keyrings/jellyfin-archive-keyring.gpg
+          arch={{ cs_jellyfin_ansible_arch_map[ansible_architecture] }}]
+          https://repo.jellyfin.org/debian {{ ansible_distribution_release }} main"
+      state: present
+      validate_certs: true
+      update_cache: true
+      filename: jellyfin.list
+
+- name: Jellyfin | Install Jellyfin
+  ansible.builtin.apt:
+      name: jellyfin
+      state: present
+      update_cache: true
+
+- name: Jellyfin | Make sure Jellyfin is restarted after upgrade
+  ansible.builtin.systemd_service:
+      name: jellyfin
+      state: restarted
+      enabled: true
+      daemon_reload: true
+
+# TODO: Config files are not recreated after purge and reinstall
+- name: Jellyfin | Configure Network Ports
+  community.general.xml:
+      path: /etc/jellyfin/network.xml
+      xpath: /NetworkConfiguration/{{ item.xpath }}
+      value: "{{ item.value }}"
+  with_items:
+      - xpath: "PublicHttpPort"
+        value: "{{ cs_jellyfin_public_http_port }}"
+      - xpath: "PublicHttpsPort"
+        value: "{{ cs_jellyfin_public_https_port }}"
+      - xpath: "InternalHttpPort"
+        value: "{{ cs_jellyfin_internal_http_port }}"
+      - xpath: "InternalHttpsPort"
+        value: "{{ cs_jellyfin_internal_https_port }}"
+      - xpath: "EnableRemoteAccess"
+        value: "true"
+
+- name: Jellyfin | Enable UFW Firewall
+  community.general.ufw:
+      rule: allow
+      port: "{{ item.port }}"
+      proto: tcp
+      state: enabled
+      comment: "Allow Jellyfin {{ item.comment }}, Managed by Ansible home-lab playbook."
+  with_items:
+      - port: "{{ cs_jellyfin_internal_http_port }}"
+        comment: "Internal HTTP Port"
+      - port: "{{ cs_jellyfin_internal_https_port }}"
+        comment: "Internal HTTPS Port"
+      - port: "{{ cs_jellyfin_public_http_port }}"
+        comment: "Public HTTP Port"
+      - port: "{{ cs_jellyfin_public_https_port }}"
+        comment: "Public HTTPS Port"
+
+- name: Jellyfin | Enable UFW UDP Firewall
+  community.general.ufw:
+      rule: allow
+      port: "{{ item.port }}"
+      proto: udp
+      state: enabled
+      comment: "Allow Jellyfin {{ item.comment }} port, Managed by Ansible home-lab playbook {{
+          now(utc=true, fmt='%Y-%m-%d %H:%M:%S') }}"
+  with_items:
+      - port: 1900
+        comment: "service auto-discovery"
+      - port: 7359
+        comment: "auto-discovery"
+
+- name: Jellyfin | Add jellyfin to video group
+  ansible.builtin.user:
+      name: jellyfin
+      groups: video
+      append: true
+      state: present
+
+- name: Jellyfin | Data directory
+  ansible.builtin.file:
+      path: "{{ cs_jellyfin_data_dir }}"
+      state: directory
+      owner: jellyfin
+      group: jellyfin
+      recurse: true
+      mode: "0755"
+
+- name: Jellyfin | Start Jellyfin
+  ansible.builtin.systemd_service:
+      name: jellyfin
+      state: restarted
+      enabled: true
+      daemon_reload: true

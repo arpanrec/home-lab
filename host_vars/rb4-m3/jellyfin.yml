@@ -1,0 +1,7 @@
+---
+cs_jellyfin_external_disk_id: "p1-5tb-rb4-m1"
+cs_jellyfin_data_dir: "/mnt/{{ cs_jellyfin_external_disk_id }}/media"
+cs_jellyfin_internal_http_port: 1111
+cs_jellyfin_internal_https_port: 8920
+cs_jellyfin_public_http_port: 8096
+cs_jellyfin_public_https_port: 8920
