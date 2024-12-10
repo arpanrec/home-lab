@@ -1,0 +1,33 @@
+---
+cs_onlyoffice_dir: /app/onlyoffice/DocumentServer
+cs_onlyoffice_domain: "{{ cs_public_ingress_dns_entry }}"
+cs_onlyoffice_jwt_secret: "{{ vault_cred_cs_onlyoffice_jwt_secret }}"
+cs_onlyoffice_port: "{{ vault_cred_cs_onlyoffice_port }}"
+
+cs_onlyoffice_db_dir: "{{ cs_onlyoffice_dir }}/db"
+cs_onlyoffice_data_dir: "{{ cs_onlyoffice_dir }}/data"
+cs_onlyoffice_lib_dir: "{{ cs_onlyoffice_dir }}/lib"
+cs_onlyoffice_logs_dir: "{{ cs_onlyoffice_dir }}/logs"
+
+cs_onlyoffice_entrypoint_file: "{{ cs_onlyoffice_dir }}/entrypoint-update-ca-certificates.sh"
+
+cs_onlyoffice_certs_dir: "{{ cs_onlyoffice_dir }}/certs"
+cs_onlyoffice_cert_pem_file: "{{ cs_onlyoffice_certs_dir }}/cert.pem"
+cs_onlyoffice_privkey_pem_file: "{{ cs_onlyoffice_certs_dir }}/privkey.pem"
+cs_onlyoffice_chain_pem_file: "{{ cs_onlyoffice_certs_dir }}/chain.pem"
+cs_onlyoffice_fullchain_pem_file: "{{ cs_onlyoffice_certs_dir }}/fullchain.pem"
+
+cs_onlyoffice_db_certs_dir: "{{ cs_onlyoffice_dir }}/db_certs"
+cs_onlyoffice_db_cert_pem_file: "{{ cs_onlyoffice_db_certs_dir }}/cert.pem"
+cs_onlyoffice_db_privkey_pem_file: "{{ cs_onlyoffice_db_certs_dir }}/privkey.pem"
+cs_onlyoffice_db_chain_pem_file: "{{ cs_onlyoffice_db_certs_dir }}/chain.pem"
+cs_onlyoffice_db_type: postgres
+cs_onlyoffice_db_host: "{{ cs_postgres_host_private_ip }}"
+cs_onlyoffice_db_port: "{{ cs_postgres_port }}"
+cs_onlyoffice_db_user: "{{ cs_postgres_apps_dict.onlyoffice.user }}"
+cs_onlyoffice_db_password: "{{ cs_postgres_apps_dict.onlyoffice.password }}"
+cs_onlyoffice_db_database: "{{ cs_postgres_apps_dict.onlyoffice.database }}"
+
+cs_onlyoffice_docker_container_name: onlyoffice
+cs_onlyoffice_docker_image: docker.io/onlyoffice/documentserver
+cs_onlyoffice_docker_image_tag: 8.1.1.1
