@@ -1,0 +1,7 @@
+---
+cs_mysql_data_dir: /app/mysql
+cs_mysql_host: "{{ cs_rb4_m1_ip }}"
+cs_mysql_db: "{{ vault_cred_cs_mysql_db }}"
+cs_mysql_password: "{{ vault_cred_cs_mysql_password }}"
+cs_mysql_port: "{{ vault_cred_cs_mysql_port }}"
+cs_mysql_user: "{{ vault_cred_cs_mysql_user }}"
