@@ -159,6 +159,19 @@
         ansible.builtin.import_tasks:
             file: tasks/elasticsearch.yml
 
+- name: Mysql
+  hosts: mysql
+  become: false
+  gather_facts: false
+  no_log: "{{ cs_no_log }}"
+  tasks:
+      - name: Mysql
+        become: true
+        become_user: root
+        tags: never,mysql
+        ansible.builtin.import_tasks:
+            file: tasks/mysql.yml
+
 - name: NFS Server
   hosts: rb4-m3
   become: false
