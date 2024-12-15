@@ -1,0 +1,69 @@
+---
+- name: Nextcloud | Onlyoffice | List all apps
+  become: true
+  become_user: "{{ cs_nc_run_user }}"
+  ansible.builtin.command:
+      cmd: "php occ app:list --output=json"
+      chdir: "{{ cs_nc_web_dir }}"
+  changed_when: false
+  register: cs_nc_app_list_onlyoffice
+
+- name: Nextcloud | Onlyoffice | Install apps
+  become: true
+  become_user: "{{ cs_nc_run_user }}"
+  ansible.builtin.command:
+      cmd: "php occ app:install {{ item }}"
+      chdir: "{{ cs_nc_web_dir }}"
+  changed_when: true
+  with_items:
+      - "onlyoffice"
+  when: >
+      not
+      (
+        item in cs_nc_app_list_onlyoffice.stdout | from_json | community.general.json_query('enabled')
+      or
+        item in cs_nc_app_list_onlyoffice.stdout | from_json | community.general.json_query('disabled')
+      )
+
+- name: Nextcloud | Onlyoffice | Write Apps Config to File /tmp/nc-apps-onlyoffice-config.json
+  ansible.builtin.copy:
+      content: "{{ cs_nc_onlyoffice_config | to_nice_json }}"
+      dest: "/tmp/nc-apps-onlyoffice-config.json"
+      mode: "0644"
+  vars:
+      cs_nc_onlyoffice_config:
+          apps:
+              onlyoffice:
+                  # yamllint disable
+                  "verify_peer_off": "false"
+                  "DocumentServerUrl": "https://{{ cs_nc_onlyoffice_domain }}:{{ cs_nc_onlyoffice_port }}/"
+                  "DocumentServerInternalUrl": "https://{{ cs_nc_onlyoffice_domain }}:{{ cs_nc_onlyoffice_port }}/"
+                  "jwt_secret": "{{ cs_nc_onlyoffice_jwt_secret }}"
+                  "customization_plugins": "true"
+                  "types": "prevent_group_restriction"
+                  "customization_macros": "true"
+                  "protection": "owner"
+                  "defFormats": '{"doc":"false","docm":"false","docx":"true","dot":"false","dotm":"false","dotx":"false","epub":"false","fb2":"false","fodt":"false","htm":"false","html":"false","mht":"false","mhtml":"false","odt":"false","ott":"false","rtf":"false","stw":"false","sxw":"false","txt":"false","wps":"false","xml":"false","csv":"false","fods":"false","ods":"false","ots":"false","sxc":"false","xls":"false","xlsb":"false","xlsm":"false","xlsx":"true","xlt":"false","xltm":"false","xltx":"false","fodp":"false","odp":"false","otp":"false","pot":"false","potm":"false","potx":"false","pps":"false","ppsm":"false","ppsx":"false","ppt":"false","pptm":"false","pptx":"true","sxi":"false","pdf":"true","djvu":"false","docxf":"true","oform":"true","oxps":"false","xps":"false"}'
+                  "editFormats": '{"epub":"false","fb2":"false","html":"false","odt":"false","ott":"false","rtf":"false","txt":"true","csv":"true","ods":"false","ots":"false","odp":"false","otp":"false"}'
+                  "sameTab": "true"
+                  "preview": "true"
+                  "advanced": "false"
+                  "cronChecker": "true"
+                  "versionHistory": "true"
+                  "groups": "[]"
+                  "customizationChat": "true"
+                  "customizationCompactHeader": "true"
+                  "customizationFeedback": "true"
+                  "customizationForcesave": "false"
+                  "customizationHelp": "true"
+                  "customizationToolbarNoTabs": "true"
+                  "customizationReviewDisplay": "original"
+                  "customizationTheme": "theme-classic-light"
+
+- name: Nextcloud | Onlyoffice | Import Apps Config
+  become: true
+  become_user: "{{ cs_nc_run_user }}"
+  ansible.builtin.command:
+      cmd: "php occ config:import /tmp/nc-apps-onlyoffice-config.json"
+      chdir: "{{ cs_nc_web_dir }}"
+  changed_when: true

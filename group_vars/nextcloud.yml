@@ -63,3 +63,7 @@ cs_nc_fts_elasticsearch_index_name: nextcloud-fulltextsearch
 cs_nc_fts_elasticsearch_systemd: nextcloud-fulltext-elasticsearch-worker
 
 cs_nc_protocol: https
+
+cs_nc_onlyoffice_port: "{{ cs_onlyoffice_port }}"
+cs_nc_onlyoffice_domain: "{{ cs_onlyoffice_domain }}"
+cs_nc_onlyoffice_jwt_secret: "{{ cs_onlyoffice_jwt_secret }}"
