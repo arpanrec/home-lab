@@ -1,16 +1,15 @@
 ---
 cs_jellyfin_external_disk_id: "p1-5tb-rb4-m1"
-cs_jellyfin_media_dir: "/mnt/{{ cs_jellyfin_external_disk_id }}/media"
 cs_jellyfin_internal_http_port: 1111
 cs_jellyfin_internal_https_port: 3459
 cs_jellyfin_public_http_port: 5644
 cs_jellyfin_public_https_port: 8921
-cs_jellyfin_container_config_dir: "/mnt/{{ cs_jellyfin_external_disk_id }}/jellyfin/config"
-cs_jellyfin_cache_dir: "/mnt/{{ cs_jellyfin_external_disk_id }}/jellyfin/cache"
-cs_jellyfin_uid: 1001
-cs_jellyfin_gid: 1002
 cs_jellyfin_container_dri_list:
     - /dev/dri/renderD128:/dev/dri/renderD128
     - /dev/dri/card0:/dev/dri/card0
     - /dev/dri/card1:/dev/dri/card1
     - /dev/video11:/dev/video11
+
+cs_jellyfin_media_dir: "/mnt/{{ cs_jellyfin_external_disk_id }}/media"
+cs_jellyfin_data_dir: /mnt/{{ cs_jellyfin_external_disk_id }}/jellyfin/data
+cs_jellyfin_config_dir: /mnt/{{ cs_jellyfin_external_disk_id }}/jellyfin/config

@@ -2,5 +2,12 @@
 cs_jellyfin_ansible_arch_map:
     aarch64: arm64
 cs_jellyfin_container_name: jellyfin
-cs_jellyfin_container_version: 10.10.3
 cs_jellyfin_container_dri_list: []
+cs_jellyfin_data_dir: /var/lib/jellyfin
+cs_jellyfin_config_dir: /etc/jellyfin
+cs_jellyfin_log_dir: /var/log/jellyfin
+cs_jellyfin_cache_dir: /var/cache/jellyfin
+cs_jellyfin_user_name: jellyfin
+cs_jellyfin_group_name: jellyfin
+
+cs_jellyfin_systemd_service_name: jellyfin.service

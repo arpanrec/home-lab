@@ -10,252 +10,6 @@
       name: "{{ cs_jellyfin_container_name }}"
       state: absent
 
-- name: Jellyfin | Container | Set file locations
-  ansible.builtin.set_fact:
-      cs_jellyfin_container_network_xml: "{{ cs_jellyfin_container_config_dir }}/config/network.xml"
-      cs_jellyfin_container_certs_dir: "{{ cs_jellyfin_container_config_dir }}/config/certs"
-
-- name: Jellyfin | Container | Create Jellyfin directories
-  ansible.builtin.file:
-      path: "{{ item }}"
-      state: directory
-      owner: "{{ cs_jellyfin_uid }}"
-      group: "{{ cs_jellyfin_gid }}"
-      mode: "0777"
-  with_items:
-      - "{{ cs_jellyfin_container_config_dir }}"
-      - "{{ cs_jellyfin_cache_dir }}"
-      - "{{ cs_jellyfin_container_certs_dir }}"
-      - "{{ cs_jellyfin_media_dir }}"
-
-- name: Jellyfin | Container | Fix Permissions
-  ansible.builtin.shell:
-      cmd: |+
-          chown -R {{ cs_jellyfin_uid }}:{{ cs_jellyfin_gid }} {{ item }};
-          find {{ item }} -type d -exec chmod 0777 {} \;
-          find {{ item }} -type f -exec chmod 0777 {} \;
-  changed_when: true
-  with_items:
-      - "{{ cs_jellyfin_container_config_dir }}"
-      - "{{ cs_jellyfin_cache_dir }}"
-      - "{{ cs_jellyfin_container_certs_dir }}"
-      - "{{ cs_jellyfin_media_dir }}"
-
-- name: Jellyfin | Container | Enable UFW Firewall
-  community.general.ufw:
-      rule: allow
-      port: "{{ item.port }}"
-      proto: tcp
-      state: enabled
-      comment: "Allow Jellyfin {{ item.comment }}, Managed by Ansible home-lab playbook."
-  with_items:
-      - port: "{{ cs_jellyfin_internal_http_port }}"
-        comment: "Internal HTTP Port"
-      - port: "{{ cs_jellyfin_internal_https_port }}"
-        comment: "Internal HTTPS Port"
-      - port: "{{ cs_jellyfin_public_http_port }}"
-        comment: "Public HTTP Port"
-      - port: "{{ cs_jellyfin_public_https_port }}"
-        comment: "Public HTTPS Port"
-
-- name: Jellyfin | Container | Enable UFW UDP Firewall
-  community.general.ufw:
-      rule: allow
-      port: "{{ item.port }}"
-      proto: udp
-      state: enabled
-      comment: "Allow Jellyfin {{ item.comment }} port, Managed by Ansible home-lab playbook."
-  with_items:
-      - port: 1900
-        comment: "service auto-discovery"
-      - port: 7359
-        comment: "auto-discovery"
-
-- name: Jellyfin | Container | First Run | Check if exists -> {{ cs_jellyfin_container_network_xml }}
-  ansible.builtin.stat:
-      path: "{{ cs_jellyfin_container_network_xml }}"
-  register: __jellyfin_network_xml_exists
-
-- name: Jellyfin | Container | First Run | Enable UFW Firewall for default Jellyfin port
-  when: not __jellyfin_network_xml_exists.stat.exists
-  community.general.ufw:
-      rule: allow
-      port: "8096"
-      proto: tcp
-      state: enabled
-      comment: "Allow Jellyfin default port, Managed by Ansible home-lab playbook.(Temporary)"
-
-- name: Jellyfin | Container | First Run | Start Container
-  when: not __jellyfin_network_xml_exists.stat.exists
-  community.docker.docker_container:
-      name: "{{ cs_jellyfin_container_name }}"
-      image: jellyfin/jellyfin:{{ cs_jellyfin_container_version }}
-      state: started
-      auto_remove: true
-      user: "{{ cs_jellyfin_uid }}:{{ cs_jellyfin_gid }}"
-      ports:
-          - "8096:8096"
-      volumes:
-          - "{{ cs_jellyfin_container_config_dir }}:/config"
-          - "{{ cs_jellyfin_cache_dir }}:/cache"
-      env:
-          TZ: Asia/Kolkata
-
-- name: Jellyfin | Container | First Run | Fail if does not exist -> {{ cs_jellyfin_container_network_xml }}
-  no_log: false
-  ansible.builtin.fail:
-      msg: "Jellyfin network.xml does not exist,
-          Do the initial setup manually and re-run the playbook."
-  when: not __jellyfin_network_xml_exists.stat.exists
-
-- name: Jellyfin | Container | Get Public Ingress IP and Hostname from vault
-  become: false
-  delegate_facts: true
-  delegate_to: localhost
-  community.hashi_vault.vault_kv2_get:
-      url: "https://{{ vault_ha_client.vault_ha_hostname }}:{{ vault_ha_client.vault_ha_port }}"
-      engine_mount_point: "secret"
-      path: "blr-home-lab"
-      token: "{{ vault_ha_client.token }}"
-      validate_certs: true
-  register: __jellyfin_server_public_ingress_secret_dict
-  environment:
-      VAULT_CACERT: "{{ vault_ha_client.vault_root_ca_cert_file }}"
-      VAULT_CLIENT_CERT: "{{ vault_ha_client.vault_client_cert_file }}"
-      VAULT_CLIENT_KEY: "{{ vault_ha_client.vault_client_key_file }}"
-
-- name: Jellyfin | Container | Set fact Public Ingress IP and Hostname
-  ansible.builtin.set_fact:
-      cs_public_ingress_ip: "{{ __jellyfin_server_public_ingress_secret_dict.secret.public_ingress_ip }}"
-      cs_public_ingress_dns_entry: "{{ __jellyfin_server_public_ingress_secret_dict.secret.public_ingress_dns_entry }}"
-
-- name: Jellyfin | Container | Gather facts
-  ansible.builtin.setup:
-      gather_subset: all
-
-- name: Jellyfin | Container | Get Server Certificates from Vault
-  become: false
-  delegate_facts: true
-  delegate_to: localhost
-  community.hashi_vault.vault_write:
-      url: "https://{{ vault_ha_client.vault_ha_hostname }}:{{ vault_ha_client.vault_ha_port }}"
-      path: pki/issue/server_certificate
-      token: "{{ vault_ha_client.token }}"
-      validate_certs: true
-      data:
-          common_name: "{{ cs_public_ingress_dns_entry }}"
-          alt_names: "{{ cs_public_ingress_dns_entry }},localhost,{{ ansible_fqdn }}"
-          # Because in the inv plugin ansible host hast to be a ip
-          ip_sans: "127.0.0.1,{{ ansible_host }},{{ cs_public_ingress_ip }}"
-  register: __jellyfin_server_cert
-  environment:
-      VAULT_CACERT: "{{ vault_ha_client.vault_root_ca_cert_file }}"
-      VAULT_CLIENT_CERT: "{{ vault_ha_client.vault_client_cert_file }}"
-      VAULT_CLIENT_KEY: "{{ vault_ha_client.vault_client_key_file }}"
-
-- name: Jellyfin | Container | Create temp files
-  ansible.builtin.tempfile:
-      state: file
-      suffix: ".pem"
-  with_items:
-      - cert
-      - chain
-      - issuing_ca
-      - key
-  register: __jellyfin_temp_files
-
-- name: Jellyfin | Container | Write Server Certificate
-  ansible.builtin.copy:
-      content: "{{ item.content }}"
-      dest: "{{ item.dest }}"
-      mode: "0777"
-  loop:
-      - content: "{{ __jellyfin_server_cert.data.data.certificate }}\n\
-            {{ __jellyfin_server_cert.data.data.ca_chain | join('\n') }}"
-        dest: "{{ __jellyfin_temp_files.results[0].path }}"
-      - content: "{{ __jellyfin_server_cert.data.data.ca_chain | join('\n') }}"
-        dest: "{{ __jellyfin_temp_files.results[1].path }}"
-      - content: "{{ __jellyfin_server_cert.data.data.issuing_ca }}"
-        dest: "{{ __jellyfin_temp_files.results[2].path }}"
-      - content: "{{ __jellyfin_server_cert.data.data.private_key }}"
-        dest: "{{ __jellyfin_temp_files.results[3].path }}"
-
-- name: Jellyfin | Container | Set random password
-  ansible.builtin.set_fact:
-      cs_jellyfin_p12_cert_password: "{{ lookup('ansible.builtin.password', '/dev/null', length=40,
-          chars=['ascii_letters', 'digits']) }}"
-
-# Certificate is not working, for some reason ca_chain is not being added to the certificate
-- name: Jellyfin | Container | Generate PKCS#12 file
-  changed_when: true
-  ansible.builtin.shell:
-      cmd: |+
-          openssl pkcs12 -export -out {{ cs_jellyfin_container_certs_dir }}/jellyfin.pfx \
-              -inkey {{ __jellyfin_temp_files.results[3].path }} \
-              -in "{{ __jellyfin_temp_files.results[0].path }}" \
-              -certfile "{{ __jellyfin_temp_files.results[2].path }}" \
-              -password "pass:{{ cs_jellyfin_p12_cert_password }}"
-
-          chmod 0444 {{ cs_jellyfin_container_certs_dir }}/jellyfin.pfx
-          chown {{ cs_jellyfin_uid }}:{{ cs_jellyfin_gid }} {{ cs_jellyfin_container_certs_dir }}/jellyfin.pfx
-
-# - name: Jellyfin | Container | Generate PKCS#12 file
-#   community.crypto.openssl_pkcs12:
-#       action: export
-#       path: {{ cs_jellyfin_container_certs_dir }}/jellyfin.pfx
-#       mode: "0440"
-#       owner: "{{ cs_jellyfin_uid }}"
-#       group: "{{ cs_jellyfin_gid }}"
-#       friendly_name: raclette
-#       encryption_level: auto
-#       privatekey_content: "{{ __jellyfin_server_cert.data.data.private_key }}"
-#       certificate_path: "{{ __jellyfin_temp_files.results[0].path }}"
-#       other_certificates_parse_all: false
-#       passphrase: "{{ cs_jellyfin_p12_cert_password }}"
-#       other_certificates:
-#           - "{{ __jellyfin_temp_files.results[2].path }}"
-#           - "{{ __jellyfin_temp_files.results[1].path }}"
-#           - "{{ __jellyfin_temp_files.results[0].path }}"
-#       state: present
-
-- name: Jellyfin | Container | Configure Network Ports
-  when: __jellyfin_network_xml_exists.stat.exists
-  community.general.xml:
-      path: "{{ cs_jellyfin_container_network_xml }}"
-      xpath: /NetworkConfiguration/{{ item.xpath }}
-      value: "{{ item.value }}"
-  with_items:
-      - xpath: "PublicHttpPort"
-        value: "{{ cs_jellyfin_public_http_port }}"
-      - xpath: "PublicHttpsPort"
-        value: "{{ cs_jellyfin_public_https_port }}"
-      - xpath: "InternalHttpPort"
-        value: "{{ cs_jellyfin_internal_http_port }}"
-      - xpath: "InternalHttpsPort"
-        value: "{{ cs_jellyfin_internal_https_port }}"
-      - xpath: "EnableRemoteAccess"
-        value: "true"
-      - xpath: "EnableHttps"
-        value: "true"
-      - xpath: "RequireHttps"
-        value: "false"
-      - xpath: "CertificatePath"
-        value: "{{ cs_jellyfin_container_certs_dir }}/jellyfin.pfx"
-      - xpath: "CertificatePassword"
-        value: "{{ cs_jellyfin_p12_cert_password }}"
-      - xpath: "AutoDiscovery"
-        value: "true"
-      - xpath: "EnableUPnP"
-        value: "true"
-      - xpath: "EnableIPv4"
-        value: "true"
-      - xpath: "EnableIPv6"
-        value: "false"
-      - xpath: "EnableRemoteAccess"
-        value: "true"
-      - xpath: "IgnoreVirtualInterfaces"
-        value: "true"
-
 - name: Jellyfin | Container | Get video group id
   ansible.builtin.getent:
       database: group
@@ -268,18 +22,37 @@
       key: render
   register: __jellyfin_render_group
 
+- name: Jellyfin | Container | Add Jellyfin to docker group
+  ansible.builtin.user:
+      name: "{{ cs_jellyfin_user_name }}"
+      groups:
+          - docker
+      append: true
+
+- name: Jellyfin | Container | Get render group id
+  ansible.builtin.getent:
+      database: passwd
+      key: "{{ cs_jellyfin_user_name }}"
+  register: __jellyfin_jellyfin_user
+
 - name: Jellyfin | Container | Start Container
+  become: true
+  become_user: "{{ cs_jellyfin_user_name }}"
   community.docker.docker_container:
       name: "{{ cs_jellyfin_container_name }}"
-      image: jellyfin/jellyfin:{{ cs_jellyfin_container_version }}
+      image: jellyfin/jellyfin:latest
+      pull: missing
       state: started
       auto_remove: false
-      hostname: "{{ cs_jellyfin_container_name }}"
+      hostname: "{{ ansible_facts.hostname }}"
       detach: true
       privileged: true
       restart_policy: unless-stopped
-      user: "{{ cs_jellyfin_uid }}:{{ cs_jellyfin_gid }}"
+      # user: "{{ cs_jellyfin_user_name }}:{{ cs_jellyfin_group_name }}"
+      user: "{{ __jellyfin_jellyfin_user.ansible_facts.getent_passwd['jellyfin'][1] | int }}:{{
+          __jellyfin_jellyfin_user.ansible_facts.getent_passwd['jellyfin'][2] | int }}"
       devices: "{{ cs_jellyfin_container_dri_list }}"
+      env_file: "{{ cs_jellyfin_config_dir }}/.env"
       groups:
           - "{{ __jellyfin_video_group.ansible_facts.getent_group['video'][1] }}"
           - "{{ __jellyfin_render_group.ansible_facts.getent_group['render'][1] }}"
@@ -288,11 +61,15 @@
           - "{{ cs_jellyfin_internal_https_port }}:{{ cs_jellyfin_internal_https_port }}"
           - "{{ cs_jellyfin_public_http_port }}:{{ cs_jellyfin_public_http_port }}"
           - "{{ cs_jellyfin_public_https_port }}:{{ cs_jellyfin_public_https_port }}"
+          - "8096:8096"
           - "7359:7359"
           - "1900:1900"
       volumes:
-          - "{{ cs_jellyfin_container_config_dir }}:/config"
-          - "{{ cs_jellyfin_cache_dir }}:/cache"
+          - "{{ cs_jellyfin_media_dir }}:{{ cs_jellyfin_media_dir }}"
+          - "{{ cs_jellyfin_data_dir }}:{{ cs_jellyfin_data_dir }}"
+          - "{{ cs_jellyfin_config_dir }}:{{ cs_jellyfin_config_dir }}"
+          - "{{ cs_jellyfin_log_dir }}:{{ cs_jellyfin_log_dir }}"
+          - "{{ cs_jellyfin_cache_dir }}:{{ cs_jellyfin_cache_dir }}"
       mounts:
           - source: "{{ cs_jellyfin_media_dir }}"
             target: "/media"

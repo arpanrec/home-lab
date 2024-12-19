@@ -1,5 +1,0 @@
----
-plugin: blr_home_lab_inv
-vaultops_tmp_dir_path: /tmp/vaultops
-storage_config: /home/arpan/google-drive/Work/Project Files/vaultops-homelab/storage_config.yml
-vault_config: /home/arpan/google-drive/Work/Project Files/vaultops-homelab/vault_config.yml

@@ -1,10 +1,78 @@
 ---
 - name: Jellyfin | Include common crypt mount
+  when: false
   ansible.builtin.include_tasks:
       file: tasks/common/crypt_mount.yml
   vars:
       cs_crypt_mount_vault_id: "{{ cs_jellyfin_external_disk_id }}"
 
-- name: Jellyfin | Package
+- name: Jellyfin | Create Group
+  ansible.builtin.group:
+      name: "{{ cs_jellyfin_group_name }}"
+      state: present
+      system: true
+
+- name: Jellyfin | Create User
+  ansible.builtin.user:
+      name: "{{ cs_jellyfin_user_name }}"
+      state: present
+      system: true
+      group: "{{ cs_jellyfin_group_name }}"
+      append: true
+      groups:
+          - video
+          - render
+      shell: /bin/false
+      home: "{{ cs_jellyfin_data_dir }}"
+
+- name: Jellyfin | Create Jellyfin directories
+  ansible.builtin.file:
+      path: "{{ item }}"
+      state: directory
+      owner: "{{ cs_jellyfin_user_name }}"
+      group: "{{ cs_jellyfin_group_name }}"
+      mode: "0750"
+  with_items:
+      - "{{ cs_jellyfin_media_dir }}"
+      - "{{ cs_jellyfin_data_dir }}"
+      - "{{ cs_jellyfin_config_dir }}"
+      - "{{ cs_jellyfin_log_dir }}"
+      - "{{ cs_jellyfin_cache_dir }}"
+
+- name: Jellyfin | Create Env File
+  community.general.ini_file:
+      path: "{{ cs_jellyfin_config_dir }}/.env"
+      owner: "{{ cs_jellyfin_user_name }}"
+      group: "{{ cs_jellyfin_group_name }}"
+      mode: "0640"
+      option: "{{ item.option }}"
+      value: "{{ item.value }}"
+      no_extra_spaces: true
+      create: true
+  with_items:
+      - option: "JELLYFIN_CONFIG_DIR"
+        value: "{{ cs_jellyfin_config_dir }}"
+      - option: "JELLYFIN_DATA_DIR"
+        value: "{{ cs_jellyfin_data_dir }}"
+      - option: "JELLYFIN_LOG_DIR"
+        value: "{{ cs_jellyfin_log_dir }}"
+      - option: "JELLYFIN_CACHE_DIR"
+        value: "{{ cs_jellyfin_cache_dir }}"
+      - option: "JELLYFIN_USER"
+        value: "{{ cs_jellyfin_user_name }}"
+
+- name: Jellyfin | Gather facts
+  ansible.builtin.setup:
+      gather_subset: all
+
+# - name: Jellyfin | Package
+#   ansible.builtin.include_tasks:
+#       file: tasks/jellyfin/package.yml
+
+- name: Jellyfin | Container
   ansible.builtin.include_tasks:
-      file: tasks/jellyfin/package.yml
+      file: tasks/jellyfin/container.yml
+
+- name: Jellyfin | Config
+  ansible.builtin.include_tasks:
+      file: tasks/jellyfin/config.yml

@@ -1,7 +1,7 @@
 ---
 - name: Jellyfin | Package | Stop Jellyfin if running
   ansible.builtin.systemd_service:
-      name: jellyfin
+      name: "{{ cs_jellyfin_systemd_service_name }}"
       state: stopped
       enabled: false
       daemon_reload: true
@@ -27,10 +27,6 @@
       validate_certs: true
       keyring: /usr/share/keyrings/jellyfin-archive-keyring.gpg
 
-- name: Jellyfin | Package | Gather facts
-  ansible.builtin.setup:
-      gather_subset: all
-
 - name: Jellyfin | Package | Add Jellyfin repository
   ansible.builtin.apt_repository:
       repo: "deb [signed-by=/usr/share/keyrings/jellyfin-archive-keyring.gpg
@@ -47,227 +43,56 @@
       state: present
       update_cache: true
 
-- name: Jellyfin | Package | Make sure jellyfin is started post installation
+- name: Jellyfin | Package | Create systemd override directory
+  ansible.builtin.file:
+      path: /etc/systemd/system/{{ cs_jellyfin_systemd_service_name }}.d
+      state: directory
+      mode: "0755"
+      owner: root
+      group: root
+
+- name: Jellyfin | Package | Check if default systemd service file exists
+  ansible.builtin.stat:
+      path: /etc/systemd/system/{{ cs_jellyfin_systemd_service_name }}.d/{{ cs_jellyfin_systemd_service_name }}.conf
+  register: __jellyfin_default_systemd_service_file
+
+- name: Jellyfin | Package | Move default systemd service file to override directory
+  ansible.builtin.command:
+      argv:
+          - mv
+          - /etc/systemd/system/{{ cs_jellyfin_systemd_service_name }}.d/{{ cs_jellyfin_systemd_service_name }}.conf
+          - /etc/systemd/system/{{ cs_jellyfin_systemd_service_name }}.d/00-{{ cs_jellyfin_systemd_service_name }}.conf
+      creates: /etc/systemd/system/{{
+          cs_jellyfin_systemd_service_name }}.d/00-{{ cs_jellyfin_systemd_service_name }}.conf
+  changed_when: true
+  when: __jellyfin_default_systemd_service_file.stat.exists
+
+- name: Jellyfin | Package | Create systemd override file
+  community.general.ini_file:
+      path: /etc/systemd/system/{{ cs_jellyfin_systemd_service_name }}.d/10-jellyfin-env.service.conf
+      mode: "0644"
+      owner: root
+      group: root
+      section: Service
+      option: "{{ item.option }}"
+      value: "{{ item.value }}"
+      no_extra_spaces: true
+      create: true
+  with_items:
+      - option: EnvironmentFile
+        value: "-{{ cs_jellyfin_config_dir }}/.env"
+      - option: User
+        value: "{{ cs_jellyfin_user_name }}"
+      - option: Group
+        value: "{{ cs_jellyfin_group_name }}"
+
+- name: Jellyfin | Package | Deamon reload
   ansible.builtin.systemd_service:
-      name: jellyfin
-      state: started
       daemon_reload: true
 
-- name: Jellyfin | Package | Enable UFW Firewall
-  community.general.ufw:
-      rule: allow
-      port: "{{ item.port }}"
-      proto: tcp
-      state: enabled
-      comment: "Allow Jellyfin {{ item.comment }}, Managed by Ansible home-lab playbook."
-  with_items:
-      - port: "{{ cs_jellyfin_internal_http_port }}"
-        comment: "Internal HTTP Port"
-      - port: "{{ cs_jellyfin_internal_https_port }}"
-        comment: "Internal HTTPS Port"
-      - port: "{{ cs_jellyfin_public_http_port }}"
-        comment: "Public HTTP Port"
-      - port: "{{ cs_jellyfin_public_https_port }}"
-        comment: "Public HTTPS Port"
-
-- name: Jellyfin | Package | Enable UFW UDP Firewall
-  community.general.ufw:
-      rule: allow
-      port: "{{ item.port }}"
-      proto: udp
-      state: enabled
-      comment: "Allow Jellyfin {{ item.comment }} port, Managed by Ansible home-lab playbook."
-  with_items:
-      - port: 1900
-        comment: "service auto-discovery"
-      - port: 7359
-        comment: "auto-discovery"
-
-- name: Jellyfin | Package | Check if /etc/jellyfin/network.xml exists
-  ansible.builtin.stat:
-      path: /etc/jellyfin/network.xml
-  register: __jellyfin_network_xml_exists
-
-- name: Jellyfin | Package | Fail if /etc/jellyfin/network.xml does not exist
-  no_log: false
-  ansible.builtin.fail:
-      msg: "Jellyfin network.xml does not exist,
-          Do the initial setup manually and re-run the playbook."
-  when: not __jellyfin_network_xml_exists.stat.exists
-
-- name: Jellyfin | Package | Get Public Ingress IP and Hostname from vault
-  become: false
-  delegate_facts: true
-  delegate_to: localhost
-  community.hashi_vault.vault_kv2_get:
-      url: "https://{{ vault_ha_client.vault_ha_hostname }}:{{ vault_ha_client.vault_ha_port }}"
-      engine_mount_point: "secret"
-      path: "blr-home-lab"
-      token: "{{ vault_ha_client.token }}"
-      validate_certs: true
-  register: __jellyfin_server_public_ingress_secret_dict
-  environment:
-      VAULT_CACERT: "{{ vault_ha_client.vault_root_ca_cert_file }}"
-      VAULT_CLIENT_CERT: "{{ vault_ha_client.vault_client_cert_file }}"
-      VAULT_CLIENT_KEY: "{{ vault_ha_client.vault_client_key_file }}"
-
-- name: Jellyfin | Package | Set fact Public Ingress IP and Hostname
-  ansible.builtin.set_fact:
-      cs_public_ingress_ip: "{{ __jellyfin_server_public_ingress_secret_dict.secret.public_ingress_ip }}"
-      cs_public_ingress_dns_entry: "{{ __jellyfin_server_public_ingress_secret_dict.secret.public_ingress_dns_entry }}"
-
-- name: Jellyfin | Package | Get Server Certificates from Vault
-  become: false
-  delegate_facts: true
-  delegate_to: localhost
-  community.hashi_vault.vault_write:
-      url: "https://{{ vault_ha_client.vault_ha_hostname }}:{{ vault_ha_client.vault_ha_port }}"
-      path: pki/issue/server_certificate
-      token: "{{ vault_ha_client.token }}"
-      validate_certs: true
-      data:
-          common_name: "{{ cs_public_ingress_dns_entry }}"
-          alt_names: "{{ cs_public_ingress_dns_entry }},localhost,{{ ansible_fqdn }}"
-          # Because in the inv plugin ansible host hast to be a ip
-          ip_sans: "127.0.0.1,{{ ansible_host }},{{ cs_public_ingress_ip }}"
-  register: __jellyfin_server_cert
-  environment:
-      VAULT_CACERT: "{{ vault_ha_client.vault_root_ca_cert_file }}"
-      VAULT_CLIENT_CERT: "{{ vault_ha_client.vault_client_cert_file }}"
-      VAULT_CLIENT_KEY: "{{ vault_ha_client.vault_client_key_file }}"
-
-- name: Jellyfin | Package | Create temp files
-  ansible.builtin.tempfile:
-      state: file
-      suffix: ".pem"
-  with_items:
-      - cert
-      - chain
-      - issuing_ca
-      - key
-  register: __jellyfin_temp_files
-
-- name: Jellyfin | Package | Create cert dir
-  ansible.builtin.file:
-      path: /etc/jellyfin/cert
-      state: directory
-      owner: jellyfin
-      group: jellyfin
-      mode: "0777"
-
-- name: Jellyfin | Package | Write Server Certificate
-  ansible.builtin.copy:
-      content: "{{ item.content }}"
-      dest: "{{ item.dest }}"
-      mode: "0644"
-  loop:
-      - content: "{{ __jellyfin_server_cert.data.data.certificate }}\n\
-            {{ __jellyfin_server_cert.data.data.ca_chain | join('\n') }}"
-        dest: "{{ __jellyfin_temp_files.results[0].path }}"
-      - content: "{{ __jellyfin_server_cert.data.data.ca_chain | join('\n') }}"
-        dest: "{{ __jellyfin_temp_files.results[1].path }}"
-      - content: "{{ __jellyfin_server_cert.data.data.issuing_ca }}"
-        dest: "{{ __jellyfin_temp_files.results[2].path }}"
-      - content: "{{ __jellyfin_server_cert.data.data.private_key }}"
-        dest: "{{ __jellyfin_temp_files.results[3].path }}"
-
-- name: Jellyfin | Package | Set random password
-  ansible.builtin.set_fact:
-      cs_jellyfin_p12_cert_password: "{{ lookup('ansible.builtin.password', '/dev/null', length=40,
-          chars=['ascii_letters', 'digits']) }}"
-
-# Certificate is not working, for some reason ca_chain is not being added to the certificate
-- name: Jellyfin | Package | Generate PKCS#12 file
-  changed_when: true
-  become: true
-  become_user: root
-  ansible.builtin.shell:
-      cmd: |+
-          openssl pkcs12 -export -out /etc/jellyfin/cert/jellyfin.pfx \
-          -inkey {{ __jellyfin_temp_files.results[3].path }} \
-          -in "{{ __jellyfin_temp_files.results[0].path }}" \
-          -certfile "{{ __jellyfin_temp_files.results[2].path }}" \
-          -password "pass:{{ cs_jellyfin_p12_cert_password }}"
-
-          chmod 0444 /etc/jellyfin/cert/jellyfin.pfx
-          chown jellyfin:jellyfin /etc/jellyfin/cert/jellyfin.pfx
-
-# - name: Jellyfin | Package | Generate PKCS#12 file
-#   community.crypto.openssl_pkcs12:
-#       action: export
-#       path: /etc/jellyfin/cert/jellyfin.pfx
-#       mode: "0444"
-#       owner: jellyfin
-#       group: jellyfin
-#       friendly_name: raclette
-#       encryption_level: auto
-#       privatekey_content: "{{ __jellyfin_server_cert.data.data.private_key }}"
-#       certificate_path: "{{ __jellyfin_temp_files.results[0].path }}"
-#       other_certificates_parse_all: false
-#       passphrase: "{{ cs_jellyfin_p12_cert_password }}"
-#       other_certificates:
-#           - "{{ __jellyfin_temp_files.results[2].path }}"
-#           - "{{ __jellyfin_temp_files.results[1].path }}"
-#           - "{{ __jellyfin_temp_files.results[0].path }}"
-#       state: present
-
-- name: Jellyfin | Package | Configure Network Ports
-  when: __jellyfin_network_xml_exists.stat.exists
-  community.general.xml:
-      path: /etc/jellyfin/network.xml
-      xpath: /NetworkConfiguration/{{ item.xpath }}
-      value: "{{ item.value }}"
-  with_items:
-      - xpath: "PublicHttpPort"
-        value: "{{ cs_jellyfin_public_http_port }}"
-      - xpath: "PublicHttpsPort"
-        value: "{{ cs_jellyfin_public_https_port }}"
-      - xpath: "InternalHttpPort"
-        value: "{{ cs_jellyfin_internal_http_port }}"
-      - xpath: "InternalHttpsPort"
-        value: "{{ cs_jellyfin_internal_https_port }}"
-      - xpath: "EnableRemoteAccess"
-        value: "true"
-      - xpath: "EnableHttps"
-        value: "true"
-      - xpath: "RequireHttps"
-        value: "false"
-      - xpath: "CertificatePath"
-        value: "/etc/jellyfin/cert/jellyfin.pfx"
-      - xpath: "CertificatePassword"
-        value: "{{ cs_jellyfin_p12_cert_password }}"
-      - xpath: "AutoDiscovery"
-        value: "true"
-      - xpath: "EnableUPnP"
-        value: "true"
-      - xpath: "EnableIPv4"
-        value: "true"
-      - xpath: "EnableIPv6"
-        value: "false"
-      - xpath: "EnableRemoteAccess"
-        value: "true"
-      - xpath: "IgnoreVirtualInterfaces"
-        value: "true"
-
-- name: Jellyfin | Package | Add jellyfin to video group
-  ansible.builtin.user:
-      name: jellyfin
-      groups: video
-      append: true
-      state: present
-
-- name: Jellyfin | Package | Data directory
-  ansible.builtin.file:
-      path: "{{ cs_jellyfin_media_dir }}"
-      state: directory
-      owner: jellyfin
-      group: jellyfin
-      recurse: true
-      mode: "0777"
-
-- name: Jellyfin | Package | Start Jellyfin
+- name: Jellyfin | Package | Make sure jellyfin is started post installation
   ansible.builtin.systemd_service:
-      name: jellyfin
-      state: restarted
+      name: "{{ cs_jellyfin_systemd_service_name }}"
+      state: started
       enabled: true
       daemon_reload: true
